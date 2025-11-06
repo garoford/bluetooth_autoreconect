@@ -309,8 +309,9 @@ if is_bluetooth_on; then
         exit 0
     fi
     
-    # Wait a bit more for Bluetooth to be fully ready
-    sleep 3
+    # Wait for PipeWire/audio system to stabilize (this solves the audio disconnection issue)
+    log_message "Waiting for audio system (PipeWire) to stabilize..."
+    sleep 15
     
     while IFS='=' read -r device_type device_info; do
         if [[ -n "$device_type" && -n "$device_info" ]]; then
@@ -345,13 +346,13 @@ sudo chmod +x /usr/local/bin/bluetooth-startup-reconnect
 sudo tee /etc/systemd/system/bluetooth-manager.service > /dev/null << 'EOF'
 [Unit]
 Description=Bluetooth Device Manager
-After=bluetooth.service graphical-session.target
+After=bluetooth.service graphical-session.target multi-user.target
 Wants=bluetooth.service
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/bluetooth-monitor
-ExecStartPost=/bin/bash -c 'sleep 5 && /usr/local/bin/bluetooth-startup-reconnect'
+ExecStartPost=/bin/bash -c 'sleep 20 && /usr/local/bin/bluetooth-startup-reconnect'
 Restart=always
 RestartSec=5
 User=root
