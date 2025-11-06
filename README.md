@@ -2,7 +2,6 @@
 
 *Bluetooth que funciona como en Windows/macOS - se conecta automáticamente*
 
-**Keywords:** `bluetooth auto connect linux` `fedora bluetooth like windows` `airpods linux auto connect` `migrar windows linux bluetooth`
 
 ## ¿Qué hace?
 
@@ -49,9 +48,7 @@ sudo systemctl status bluetooth-manager.service
 
 ## Sistema probado
 
-- **Hardware:** Gigabyte B360M GAMING HD, Intel i5-8400, 16GB RAM
 - **OS:** Fedora 43, Kernel 6.17.7, PipeWire
-- **Dispositivos:** POP Icon Keys, Sound Blaster GS3, Redmi Buds 6 Pro
 
 ## Solución de problemas
 
