@@ -30,6 +30,7 @@ echo "Removing scripts..."
 sudo rm -f /usr/local/bin/bluetooth-device-tracker
 sudo rm -f /usr/local/bin/bluetooth-reconnect
 sudo rm -f /usr/local/bin/bluetooth-monitor
+sudo rm -f /usr/local/bin/bluetooth-startup-reconnect
 
 # Remove data directory and files
 echo "Removing data files..."

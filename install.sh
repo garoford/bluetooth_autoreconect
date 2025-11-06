@@ -145,8 +145,8 @@ fi
 touch "$LOCK_FILE"
 trap "rm -f $LOCK_FILE" EXIT
 
-# Wait for Bluetooth to be fully ready
-sleep 3
+# Minimal wait for Bluetooth to be ready (reduced from 3 to 1 second)
+sleep 1
 
 if [[ ! -f "$DEVICE_FILE" ]]; then
     echo "No devices to reconnect"
@@ -155,6 +155,9 @@ fi
 
 echo "Attempting to reconnect to saved devices..."
 
+# Connect to all devices in parallel for faster reconnection
+declare -a pids=()
+
 while IFS='=' read -r device_type device_info; do
     if [[ -n "$device_type" && -n "$device_info" ]]; then
         mac=$(echo "$device_info" | cut -d'|' -f1)
@@ -162,19 +165,25 @@ while IFS='=' read -r device_type device_info; do
         
         echo "Trying to connect to ${device_type}: ${name} (${mac})"
         
-        # Try to connect
-        timeout 10 bluetoothctl connect "$mac" &>/dev/null
+        # Connect in background for parallel execution
+        (
+            timeout 8 bluetoothctl connect "$mac" &>/dev/null
+            # Quick check if connection was successful
+            if bluetoothctl info "$mac" 2>/dev/null | grep -q "Connected: yes"; then
+                echo "Successfully connected to ${name}"
+            else
+                echo "Failed to connect to ${name}"
+            fi
+        ) &
         
-        # Check if connection was successful
-        if bluetoothctl info "$mac" 2>/dev/null | grep -q "Connected: yes"; then
-            echo "Successfully connected to ${name}"
-        else
-            echo "Failed to connect to ${name}"
-        fi
-        
-        sleep 1
+        pids+=($!)
     fi
 done < "$DEVICE_FILE"
+
+# Wait for all connection attempts to complete (max 8 seconds total)
+for pid in "${pids[@]}"; do
+    wait "$pid"
+done
 
 echo "Reconnection attempts completed"
 EOF
@@ -215,8 +224,8 @@ monitor_bluetooth() {
     # Monitor D-Bus signals for Bluetooth adapter property changes
     dbus-monitor --system "type='signal',interface='org.freedesktop.DBus.Properties',member='PropertiesChanged',path='/org/bluez/hci0'" 2>/dev/null | while read -r line; do
         if echo "$line" | grep -q "Powered"; then
-            # Small delay to ensure the change has taken effect
-            sleep 1
+            # Minimal delay to ensure the change has taken effect (reduced from 1 to 0.5 seconds)
+            sleep 0.5
             
             if is_bluetooth_on; then
                 if [[ "$last_state" != "on" ]]; then
@@ -267,16 +276,82 @@ EOF
 
 sudo chmod +x /usr/local/bin/bluetooth-monitor
 
+# Create the startup reconnection script
+sudo tee /usr/local/bin/bluetooth-startup-reconnect > /dev/null << 'EOF'
+#!/bin/bash
+
+# Bluetooth Startup Reconnector
+# Reconnects to saved devices if Bluetooth is already ON at system startup
+
+DEVICE_FILE="/var/lib/bluetooth-manager/last_devices.conf"
+LOG_FILE="/var/log/bluetooth-monitor.log"
+
+log_message() {
+    echo "$(date '+%Y-%m-%d %H:%M:%S') - $1" | sudo tee -a "$LOG_FILE" > /dev/null
+}
+
+# Function to check if Bluetooth is powered on
+is_bluetooth_on() {
+    bluetoothctl show 2>/dev/null | grep -q "Powered: yes"
+}
+
+# Wait a bit for the system to fully initialize
+sleep 2
+
+log_message "Startup reconnect check initiated"
+
+# Check if Bluetooth is already powered on
+if is_bluetooth_on; then
+    log_message "Bluetooth is ON at startup - attempting to reconnect to saved devices"
+    
+    if [[ ! -f "$DEVICE_FILE" ]]; then
+        log_message "No devices to reconnect at startup"
+        exit 0
+    fi
+    
+    # Wait a bit more for Bluetooth to be fully ready
+    sleep 3
+    
+    while IFS='=' read -r device_type device_info; do
+        if [[ -n "$device_type" && -n "$device_info" ]]; then
+            mac=$(echo "$device_info" | cut -d'|' -f1)
+            name=$(echo "$device_info" | cut -d'|' -f2)
+            
+            log_message "Startup: Trying to connect to ${device_type}: ${name} (${mac})"
+            
+            # Try to connect
+            timeout 15 bluetoothctl connect "$mac" &>/dev/null
+            
+            # Check if connection was successful
+            if bluetoothctl info "$mac" 2>/dev/null | grep -q "Connected: yes"; then
+                log_message "Startup: Successfully connected to ${name}"
+            else
+                log_message "Startup: Failed to connect to ${name}"
+            fi
+            
+            sleep 2
+        fi
+    done < "$DEVICE_FILE"
+    
+    log_message "Startup reconnection attempts completed"
+else
+    log_message "Bluetooth is OFF at startup - no reconnection needed"
+fi
+EOF
+
+sudo chmod +x /usr/local/bin/bluetooth-startup-reconnect
+
 # Create systemd service
 sudo tee /etc/systemd/system/bluetooth-manager.service > /dev/null << 'EOF'
 [Unit]
 Description=Bluetooth Device Manager
-After=bluetooth.service
+After=bluetooth.service graphical-session.target
 Wants=bluetooth.service
 
 [Service]
 Type=simple
 ExecStart=/usr/local/bin/bluetooth-monitor
+ExecStartPost=/bin/bash -c 'sleep 5 && /usr/local/bin/bluetooth-startup-reconnect'
 Restart=always
 RestartSec=5
 User=root
